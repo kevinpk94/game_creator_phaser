@@ -14,7 +14,7 @@ function triggerImport() {
     <n-space align="center">
       <span>Chế độ:</span>
       <n-radio-group v-model:value="editMode" name="edit-mode" size="small">
-        <n-radio-button value="obstacle">Chướng ngại vật</n-radio-button>
+        <n-radio-button value="tile">Vẽ Tile</n-radio-button>
         <n-radio-button value="player">Đặt NV chính</n-radio-button>
         <n-radio-button value="npc">Đặt NPC</n-radio-button>
         <n-radio-button value="button">Nút bấm</n-radio-button>

@@ -5,14 +5,14 @@ import { NCard, NButton, NSpace } from 'naive-ui';
 const props = defineProps({
   characters: Array,
   buttons: Array,
-  obstacleTypes: Array,
+  tilesets: Array,
   editMode: String,
 });
 
 const selectedCharacterId = defineModel('selectedCharacterId');
 const selectedButtonId = defineModel('selectedButtonId');
-const selectedObstacleTypeId = defineModel('selectedObstacleTypeId');
-const emit = defineEmits(['add-npc', 'add-button', 'add-obstacle-type']);
+const selectedTilesetId = defineModel('selectedTilesetId');
+const emit = defineEmits(['add-npc', 'add-button', 'add-tileset']);
 
 </script>
 
@@ -40,20 +40,20 @@ const emit = defineEmits(['add-npc', 'add-button', 'add-obstacle-type']);
           <span>{{ btn.name }} (Button)</span>
         </div>
         <div
-          v-if="editMode === 'obstacle'"
-          v-for="obs in obstacleTypes"
-          :key="obs.id"
+          v-if="editMode === 'tile'"
+          v-for="ts in tilesets"
+          :key="ts.id"
           class="scene-item"
-          :class="{ 'scene-item-active': obs.id === selectedObstacleTypeId }"
-          @click="selectedObstacleTypeId = obs.id"
+          :class="{ 'scene-item-active': ts.id === selectedTilesetId }"
+          @click="selectedTilesetId = ts.id"
         >
-          <span>{{ obs.name }} (Vật cản)</span>
+          <span>{{ ts.name }} (Tileset)</span>
         </div>
       </div>
       <template #footer>
         <n-button v-if="editMode === 'npc'" @click="emit('add-npc')" size="small" block>Thêm NPC</n-button>
         <n-button v-if="editMode === 'button'" @click="emit('add-button')" size="small" block>Thêm Nút</n-button>
-        <n-button v-if="editMode === 'obstacle'" @click="emit('add-obstacle-type')" size="small" block>Thêm Vật cản</n-button>
+        <n-button v-if="editMode === 'tile'" @click="emit('add-tileset')" size="small" block>Thêm Tileset</n-button>
       </template>
     </n-card>
   </aside>

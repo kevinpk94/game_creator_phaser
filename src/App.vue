@@ -8,21 +8,21 @@ import InspectorPanel from './components/InspectorPanel.vue';
 
 let gameContainer = ref(null);
 let gameInstance = null;
-const editMode = ref('obstacle'); // 'obstacle', 'player', 'npc'
+const editMode = ref('tile'); // 'tile', 'player', 'npc'
 const animDirections = ['idle', 'down', 'left', 'right', 'up'];
 
 const characters = ref([
-  {
-    id: 'player',
-    name: 'Nhân vật chính',
-    type: 'player',
-    spriteConfig: {
-      frameWidth: 64,
-      frameHeight: 64,
-      sprites: {}, // { idle: { url, animMap, frameCount, sheetLoaded }, ... }
-    },
-    movement: null,
-  }
+    {
+        id: 'player',
+        name: 'Nhân vật chính',
+        type: 'player',
+        spriteConfig: {
+            frameWidth: 64,
+            frameHeight: 64,
+            sprites: {}, // { idle: { url, animMap, frameCount, sheetLoaded }, ... }
+        },
+        movement: null,
+    }
 ]);
 
 // Quản lý các nút bấm tùy chỉnh
@@ -35,129 +35,155 @@ const grid = ref([]);
 let isDragging = false; // Cờ để kiểm soát việc cập nhật khi kéo thả
 let dragTimeout = null;
 
-// Quản lý các loại chướng ngại vật
-const obstacleTypes = ref([
+// Quản lý các tileset
+const tilesets = ref([
     {
-        id: 'default_obstacle',
-        name: 'Chướng ngại vật',
-        type: 'obstacle',
-        isSolid: true,
-        spriteUrl: null,
+        id: 'default_tileset',
+        name: 'Tileset Mặc định',
+        type: 'tileset',
+        imageUrl: null,
+        tileWidth: 40,
+        tileHeight: 40,
+        // Thêm các thuộc tính cho từng tile, ví dụ: { 0: { isSolid: true }, 1: { isWater: true } }
+        tileProperties: {}
     }
 ]);
-let nextObstacleId = 1;
+let nextTilesetId = 1;
 
 const selectedCharacterId = ref('player');
 const selectedButtonId = ref(null);
-const selectedObstacleTypeId = ref(null);
+const selectedTilesetId = ref(null);
+const selectedTileIndex = ref(0); // Tile index để vẽ
 let nextNpcId = 1;
 
 const selectedCharacter = computed(() => {
-  // Reset selectedButtonId nếu một character được chọn
-  if (selectedCharacterId.value) {
-    selectedButtonId.value = null;
-    selectedObstacleTypeId.value = null;
-  }
-  return characters.value.find(c => c.id === selectedCharacterId.value);
+    // Reset selectedButtonId nếu một character được chọn
+    if (selectedCharacterId.value) {
+        selectedButtonId.value = null;
+        selectedTilesetId.value = null;
+    }
+    return characters.value.find(c => c.id === selectedCharacterId.value);
 })
 
 const selectedButton = computed(() => {
-  // Reset selectedCharacterId nếu một button được chọn
-  if (selectedButtonId.value) {
-    selectedCharacterId.value = null;
-    selectedObstacleTypeId.value = null;
-  }
-  return customButtons.value.find(b => b.id === selectedButtonId.value);
+    // Reset selectedCharacterId nếu một button được chọn
+    if (selectedButtonId.value) {
+        selectedCharacterId.value = null;
+        selectedTilesetId.value = null;
+    }
+    return customButtons.value.find(b => b.id === selectedButtonId.value);
 })
 
-const selectedObstacleType = computed(() => {
-  // Reset các lựa chọn khác nếu một obstacle type được chọn
-  if (selectedObstacleTypeId.value) {
-    selectedCharacterId.value = null;
-    selectedButtonId.value = null;
-  }
-  return obstacleTypes.value.find(o => o.id === selectedObstacleTypeId.value);
+const selectedTileset = computed(() => {
+    // Reset các lựa chọn khác nếu một tileset được chọn
+    if (selectedTilesetId.value) {
+        selectedCharacterId.value = null;
+        selectedButtonId.value = null;
+    }
+    return tilesets.value.find(o => o.id === selectedTilesetId.value);
 })
 
 // Computed properties to bind UI to the selected character's config
 const spriteConfig = computed(() => selectedCharacter.value.spriteConfig);
 const sprites = computed(() => spriteConfig.value.sprites);
 
+function handleTileSelected(tileIndex) {
+    selectedTileIndex.value = tileIndex;
+    if (gameInstance && gameInstance.setActiveTile) {
+        // Gửi cả ID của tileset đang được chọn và index của tile
+        gameInstance.setActiveTile(selectedTilesetId.value, tileIndex);
+    }
+}
+
 function setEditMode(mode) {
-  editMode.value = mode;
-  if (gameInstance && gameInstance.setEditMode) {
-    gameInstance.setEditMode(mode);
-  }
+    editMode.value = mode;
+    if (gameInstance && gameInstance.setEditMode) {
+        gameInstance.setEditMode(mode);
+    }
 }
 
 function addNpc() {
-  const newNpc = {
-    id: `npc${nextNpcId++}`,
-    name: `NPC ${nextNpcId - 1}`,
-    type: 'npc',
-    spriteConfig: {
-      frameWidth: 64,
-      frameHeight: 64,
-      sprites: {},
-    },
-    movement: {
-      type: 'random',
-      range: { x1: 0, y1: 0, x2: 19, y2: 14 },
-      delay: 2000,
-      speed: 200,
-      path: [{x: 1, y: 1}],
-    },
-  };
-  characters.value.push(newNpc);
-  selectedCharacterId.value = newNpc.id;
+    const newNpc = {
+        id: `npc${nextNpcId++}`,
+        name: `NPC ${nextNpcId - 1}`,
+        type: 'npc',
+        spriteConfig: {
+            frameWidth: 64,
+            frameHeight: 64,
+            sprites: {},
+        },
+        movement: {
+            type: 'random',
+            range: { x1: 0, y1: 0, x2: 19, y2: 14 },
+            delay: 2000,
+            speed: 200,
+            path: [{ x: 1, y: 1 }],
+        },
+    };
+    characters.value.push(newNpc);
+    selectedCharacterId.value = newNpc.id;
 }
 
 function addButton() {
-  // Tìm ID lớn nhất hiện có trong mảng customButtons
-  const maxId = customButtons.value.reduce((max, button) => {
-    // Lấy phần số từ chuỗi ID, ví dụ: 'button12' -> 12
-    const currentId = parseInt(button.id.replace('button', ''), 10);
-    return currentId > max ? currentId : max;
-  }, 0);
+    // Tìm ID lớn nhất hiện có trong mảng customButtons
+    const maxId = customButtons.value.reduce((max, button) => {
+        // Lấy phần số từ chuỗi ID, ví dụ: 'button12' -> 12
+        const currentId = parseInt(button.id.replace('button', ''), 10);
+        return currentId > max ? currentId : max;
+    }, 0);
 
-  const newId = maxId + 1;
+    const newId = maxId + 1;
 
-  const newButton = {
-    id: `button${newId}`,
-    name: `Button ${newId}`,
-    type: 'button',
-    x: 150,
-    y: 150,
-    texture: '', // Người dùng sẽ cấu hình
-    action: {
-      type: 'play_anim',
-      targetId: 'player', // Mặc định là player
-      animName: 'attack' // Ví dụ, người dùng sẽ cấu hình
-    }
-  };
-  customButtons.value.push(newButton);
-  selectedButtonId.value = newButton.id;
-}
-
-function addObstacleType() {
-    const newObstacleType = {
-        id: `obstacle_${nextObstacleId++}`,
-        name: `Vật cản ${nextObstacleId - 1}`,
-        type: 'obstacle',
-        isSolid: true,
-        spriteUrl: null,
+    const newButton = {
+        id: `button${newId}`,
+        name: `Button ${newId}`,
+        type: 'button',
+        x: 150,
+        y: 150,
+        texture: '', // Người dùng sẽ cấu hình
+        actions: { // Thay action bằng actions (số nhiều)
+            onDown: { type: 'none', targetId: 'player', animName: '', direction: '' },
+            onHold: { type: 'none', targetId: 'player', animName: '', direction: '' },
+            onUp: { type: 'none', targetId: 'player', animName: '', direction: '' }
+        }
     };
-    obstacleTypes.value.push(newObstacleType);
-    selectedObstacleTypeId.value = newObstacleType.id;
+    customButtons.value.push(newButton);
+    selectedButtonId.value = newButton.id;
+
+    restartGame()
 }
 
-function removeButton() {
-    // Tương tự removeCharacter, sẽ được thêm vào InspectorPanel
-    const index = customButtons.value.findIndex(b => b.id === selectedButtonId.value);
-    if (index > -1) {
-        customButtons.value.splice(index, 1);
-        selectedButtonId.value = null;
+function addTileset() {
+    const newTileset = {
+        id: `tileset_${nextTilesetId++}`,
+        name: `Tileset ${nextTilesetId - 1}`,
+        type: 'tileset',
+        imageUrl: null,
+        tileWidth: 40,
+        tileHeight: 40,
+        tileProperties: {}
+    };
+    tilesets.value.push(newTileset);
+    selectedTilesetId.value = newTileset.id;
+}
+
+function handleRemoveItem(item) {
+    if (!item) return;
+    if (item.type === 'npc') {
+        const index = characters.value.findIndex(c => c.id === item.id);
+        if (index > -1) {
+            characters.value.splice(index, 1);
+            selectedCharacterId.value = 'player';
+        }
+    } else if (item.type === 'button') {
+        const index = customButtons.value.findIndex(b => b.id === item.id);
+        if (index > -1) {
+            customButtons.value.splice(index, 1);
+            selectedButtonId.value = null;
+        }
     }
+
+    restartGame()
 }
 
 function removeCharacter() {
@@ -176,31 +202,31 @@ function addPatrolPoint() {
   }
 }
 
-function onObstacleSpriteUpload(e) {
-    if (!selectedObstacleType.value) return;
+function onTilesetImageUpload(e) {
+    if (!selectedTileset.value) return;
     const file = e.target.files[0];
     if (file) {
         const reader = new FileReader();
         reader.onload = (event) => {
-            selectedObstacleType.value.spriteUrl = event.target.result;
+            selectedTileset.value.imageUrl = event.target.result;
         };
         reader.readAsDataURL(file);
     }
 }
 
 function onSpriteUpload(dir, e) {
-  const file = e.target.files[0];
-  if (file) {
-    const reader = new FileReader();
-    reader.onload = (event) => {
-        if (!sprites.value[dir]) {
-          sprites.value[dir] = { url: '', animMap: [], frameCount: 1, sheetLoaded: false };
-        }
-        sprites.value[dir].url = event.target.result; // Gán chuỗi base64
-        sprites.value[dir].sheetLoaded = false;
-    };
-    reader.readAsDataURL(file);
-  }
+    const file = e.target.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            if (!sprites.value[dir]) {
+                sprites.value[dir] = { url: '', animMap: [], frameCount: 1, sheetLoaded: false };
+            }
+            sprites.value[dir].url = event.target.result; // Gán chuỗi base64
+            sprites.value[dir].sheetLoaded = false;
+        };
+        reader.readAsDataURL(file);
+    }
 }
 
 function onSheetLoad(dir, e) {
@@ -212,11 +238,11 @@ function onSheetLoad(dir, e) {
 }
 
 function selectFrame(dir, idx) {
-  if (!sprites.value[dir].animMap) sprites.value[dir].animMap = [];
-  const arr = sprites.value[dir].animMap;
-  const i = arr.indexOf(idx);
-  if (i === -1) arr.push(idx); else arr.splice(i, 1);
-  sprites.value[dir].animMap = [...arr];
+    if (!sprites.value[dir].animMap) sprites.value[dir].animMap = [];
+    const arr = sprites.value[dir].animMap;
+    const i = arr.indexOf(idx);
+    if (i === -1) arr.push(idx); else arr.splice(i, 1);
+    sprites.value[dir].animMap = [...arr];
 }
 
 function isFrameSelected(dir, idx) {
@@ -235,29 +261,29 @@ function restartGame(importedGrid = null) {
 }
 // --- LOGIC LIVE UPDATE ---
 watch(characters, (newChars, oldChars) => {
-  if (!gameInstance || !newChars || !oldChars) return;
+    if (!gameInstance || !newChars || !oldChars) return;
 
-  // Tìm các nhân vật đã bị xóa
-  for (const oldChar of oldChars) {
-    if (!newChars.some(newChar => newChar.id === oldChar.id)) {
-      gameInstance.removeCharacter(oldChar.id);
+    // Tìm các nhân vật đã bị xóa
+    for (const oldChar of oldChars) {
+        if (!newChars.some(newChar => newChar.id === oldChar.id)) {
+            gameInstance.removeCharacter(oldChar.id);
+        }
     }
-  }
 
-  // Tìm các nhân vật mới hoặc đã được cập nhật
-  for (const newChar of newChars) {
-    const oldChar = oldChars.find(c => c.id === newChar.id);
-    if (!oldChar) {
-      // Nhân vật mới
-      gameInstance.addCharacter(newChar);
-    } else {
-      // Nhân vật đã được cập nhật
-      // Sử dụng JSON.stringify để so sánh sâu một cách đơn giản
-      if (JSON.stringify(newChar) !== JSON.stringify(oldChar)) {
-        gameInstance.updateCharacter(newChar);
-      }
+    // Tìm các nhân vật mới hoặc đã được cập nhật
+    for (const newChar of newChars) {
+        const oldChar = oldChars.find(c => c.id === newChar.id);
+        if (!oldChar) {
+            // Nhân vật mới
+            gameInstance.addCharacter(newChar);
+        } else {
+            // Nhân vật đã được cập nhật
+            // Sử dụng JSON.stringify để so sánh sâu một cách đơn giản
+            if (JSON.stringify(newChar) !== JSON.stringify(oldChar)) {
+                gameInstance.updateCharacter(newChar);
+            }
+        }
     }
-  }
 }, { deep: true });
 
 watch(customButtons, (newButtons, oldButtons) => {
@@ -284,26 +310,33 @@ watch(customButtons, (newButtons, oldButtons) => {
     }
 }, { deep: true });
 
-watch(obstacleTypes, (newObstacles, oldObstacles) => {
-    if (!gameInstance || !newObstacles || !oldObstacles) return;
+watch(tilesets, (newTilesets, oldTilesets) => {
+    if (!gameInstance || !newTilesets || !oldTilesets) return;
 
-    for (const oldObs of oldObstacles) {
-        if (!newObstacles.some(newObs => newObs.id === oldObs.id)) {
-            gameInstance.removeObstacleType(oldObs.id);
+    for (const oldTileset of oldTilesets) {
+        if (!newTilesets.some(newTileset => newTileset.id === oldTileset.id)) {
+            gameInstance.removeTileset(oldTileset.id);
         }
     }
 
-    for (const newObs of newObstacles) {
-        const oldObs = oldObstacles.find(o => o.id === newObs.id);
-        if (!oldObs) {
-            gameInstance.addObstacleType(newObs);
+    for (const newTileset of newTilesets) {
+        const oldTileset = oldTilesets.find(o => o.id === newTileset.id);
+        if (!oldTileset) {
+            gameInstance.addTileset(newTileset);
         } else {
-            if (JSON.stringify(newObs) !== JSON.stringify(oldObs)) {
-                gameInstance.updateObstacleType(newObs);
+            if (JSON.stringify(newTileset) !== JSON.stringify(oldTileset)) {
+                gameInstance.updateTileset(newTileset);
             }
         }
     }
 }, { deep: true });
+
+watch(selectedButtonId, (newId) => {
+    // Khi người dùng chọn một nút từ ScenePanel, báo cho Phaser để highlight
+    if (gameInstance && newId) {
+        gameInstance.selectButton(newId);
+    }
+});
 
 // --- LOCALSTORAGE & STATE MANAGEMENT ---
 
@@ -320,7 +353,7 @@ const saveState = debounce(() => {
     const state = {
         characters: characters.value,
         customButtons: customButtons.value,
-        obstacleTypes: obstacleTypes.value,
+        tilesets: tilesets.value,
         grid: grid.value, // Lưu cả grid
     };
     localStorage.setItem('gameCreatorState', JSON.stringify(state));
@@ -333,20 +366,20 @@ function loadState() {
         const state = JSON.parse(savedState);
         characters.value = state.characters || [];
         customButtons.value = state.customButtons || [];
-        obstacleTypes.value = state.obstacleTypes || [];
+        tilesets.value = state.tilesets || [];
         grid.value = state.grid || [];
     }
 }
 
 // Watch all data sources to trigger save
-watch([characters, customButtons, obstacleTypes, grid], saveState, { deep: true });
+watch([characters, customButtons, tilesets, grid], saveState, { deep: true });
 
 function startGame() {
   if (!gameInstance) {
     gameInstance = createPhaserGame('game-container', { 
         characters: characters.value, 
         buttons: customButtons.value,
-        obstacles: obstacleTypes.value,
+        tilesets: tilesets.value,
         grid: grid.value // Truyền grid đã load hoặc mặc định
     });
     if (gameInstance && gameInstance.setEditMode) {
@@ -372,6 +405,15 @@ function startGame() {
       gameInstance.events.on('gridupdated', (newGrid) => {
         grid.value = newGrid;
       });
+      // Lắng nghe sự kiện chọn nút từ Phaser
+      gameInstance.events.on('buttonSelected', (buttonId) => {
+        // Cập nhật ID đã chọn, việc này sẽ tự động trigger watch ở trên
+        selectedButtonId.value = buttonId;
+      });
+      // Đặt tile đang hoạt động khi game khởi động
+      if (gameInstance.setActiveTile) {
+          gameInstance.setActiveTile(selectedTilesetId.value, selectedTileIndex.value);
+      }
     }
   }
 }
@@ -425,11 +467,11 @@ function handleImport(event, callback) {
         v-model:edit-mode="editMode" 
         @update:edit-mode="setEditMode" 
         @restart-game="restartGame"
-        @export-game="handleExport({ characters, customButtons, obstacleTypes, grid })"
+        @export-game="handleExport({ characters, customButtons, tilesets, grid })"
         @import-game="handleImport($event, (data) => {
             characters.value = data.characters || [];
             customButtons.value = data.customButtons || [];
-            obstacleTypes.value = data.obstacleTypes || [];
+            tilesets.value = data.tilesets || [];
             // Cần truyền grid vào game khi restart
             restartGame(data.grid);
         })"
@@ -439,14 +481,14 @@ function handleImport(event, callback) {
       <ScenePanel 
         :characters="characters" 
         :buttons="customButtons"
-        :obstacle-types="obstacleTypes"
+        :tilesets="tilesets"
         :edit-mode="editMode"
         v-model:selected-character-id="selectedCharacterId" 
         v-model:selected-button-id="selectedButtonId"
-        v-model:selected-obstacle-type-id="selectedObstacleTypeId"
+        v-model:selected-tileset-id="selectedTilesetId"
         @add-npc="addNpc"
         @add-button="addButton"
-        @add-obstacle-type="addObstacleType"
+        @add-tileset="addTileset"
       />
 
       <section class="editor-viewport">
@@ -456,13 +498,15 @@ function handleImport(event, callback) {
       <InspectorPanel
         :selected-character="selectedCharacter"
         :selected-button="selectedButton"
-        :selected-obstacle-type="selectedObstacleType"
+        :selected-tileset="selectedTileset"
         :anim-directions="animDirections"
-        @remove-character="removeCharacter"
-        @obstacle-sprite-uploaded="onObstacleSpriteUpload"
+        @remove-item="handleRemoveItem"
+        @tileset-image-uploaded="onTilesetImageUpload"
         @sprite-uploaded="onSpriteUpload"
         @sheet-loaded="onSheetLoad"
         @frame-selected="selectFrame"
+        :selected-tile-index="selectedTileIndex"
+        @tile-selected="handleTileSelected"
       />
     </main>
   </div>

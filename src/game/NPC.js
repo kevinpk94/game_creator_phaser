@@ -106,13 +106,9 @@ export default class NPC extends Phaser.GameObjects.Sprite {
         const newX = Phaser.Math.Between(x1, x2);
         const newY = Phaser.Math.Between(y1, y2);
 
-        const isCellSolid = () => {
-            if (!this.scene.grid[newY] || this.scene.grid[newY][newX] === undefined) return true; // Ngoài bản đồ
-            const obstacleId = this.scene.grid[newY][newX];
-            if (obstacleId === 0) return false;
-            const obstacleType = this.scene.obstacleTypes.get(obstacleId);
-            return obstacleType ? obstacleType.isSolid : false;
-        };
+        const tile = this.scene.tilemapLayer ? this.scene.tilemapLayer.getTileAt(newX, newY) : null;
+        // Tile có index >= 0 là có tile, -1 là trống.
+        const isCellSolid = () => tile && tile.index >= 0;
 
         if (!isCellSolid()) {
             this.setGridPosition(newX, newY);
@@ -152,13 +148,9 @@ export default class NPC extends Phaser.GameObjects.Sprite {
         else if (y < target.y) { newY++; dir = 'down'; }
         else if (y > target.y) { newY--; dir = 'up'; }
 
-        const isCellSolid = () => {
-            if (!this.scene.grid[newY] || this.scene.grid[newY][newX] === undefined) return true; // Ngoài bản đồ
-            const obstacleId = this.scene.grid[newY][newX];
-            if (obstacleId === 0) return false;
-            const obstacleType = this.scene.obstacleTypes.get(obstacleId);
-            return obstacleType ? obstacleType.isSolid : false;
-        };
+        const tile = this.scene.tilemapLayer ? this.scene.tilemapLayer.getTileAt(newX, newY) : null;
+        // Tile có index >= 0 là có tile, -1 là trống.
+        const isCellSolid = () => tile && tile.index >= 0;
 
         if (!isCellSolid()) {
             this.setGridPosition(newX, newY);

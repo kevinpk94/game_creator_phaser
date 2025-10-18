@@ -36,9 +36,6 @@ export default class Player extends Phaser.GameObjects.Sprite {
         this.setDisplaySize(TILE_SIZE, TILE_SIZE);
 
         this.cursors = this.scene.input.keyboard.createCursorKeys();
-        // Thêm các nút điều khiển ảo cho mobile
-        this.virtualControls = { up: false, down: false, left: false, right: false };
-        this.createVirtualControls();
     }
 
     createAnims() {
@@ -111,39 +108,31 @@ export default class Player extends Phaser.GameObjects.Sprite {
         this.setGridPosition(oldGridPos.x, oldGridPos.y);
     }
 
-    createVirtualControls() {
-        const dpadSize = 50;
-        const dpadAlpha = 0.4;
-        const dpadX = 100;
-        const dpadY = this.scene.cameras.main.height - 100;
+    /**
+     * Di chuyển nhân vật một ô theo hướng chỉ định.
+     * @param {string} direction 'left', 'right', 'up', 'down'
+     */
+    moveInDirection(direction) {
+        if (this.isPlayingOneShot || this.moveCooldown > 0) return;
 
-        // Nút Trái
-        const leftButton = this.scene.add.rectangle(dpadX - dpadSize, dpadY, dpadSize, dpadSize, 0xffffff, dpadAlpha).setInteractive();
-        leftButton.setScrollFactor(0); // Giữ cố định trên màn hình
-        leftButton.on('pointerdown', () => { this.virtualControls.left = true; });
-        leftButton.on('pointerup', () => { this.virtualControls.left = false; });
-        leftButton.on('pointerout', () => { this.virtualControls.left = false; }); // Xử lý khi ngón tay trượt ra ngoài
+        const { x, y } = this.gridPos;
+        let newX = x, newY = y;
 
-        // Nút Phải
-        const rightButton = this.scene.add.rectangle(dpadX + dpadSize, dpadY, dpadSize, dpadSize, 0xffffff, dpadAlpha).setInteractive();
-        rightButton.setScrollFactor(0);
-        rightButton.on('pointerdown', () => { this.virtualControls.right = true; });
-        rightButton.on('pointerup', () => { this.virtualControls.right = false; });
-        rightButton.on('pointerout', () => { this.virtualControls.right = false; });
+        if (direction === 'left' && x > 0) newX--;
+        else if (direction === 'right' && x < GRID_COLS - 1) newX++;
+        else if (direction === 'up' && y > 0) newY--;
+        else if (direction === 'down' && y < GRID_ROWS - 1) newY++;
 
-        // Nút Lên
-        const upButton = this.scene.add.rectangle(dpadX, dpadY - dpadSize, dpadSize, dpadSize, 0xffffff, dpadAlpha).setInteractive();
-        upButton.setScrollFactor(0);
-        upButton.on('pointerdown', () => { this.virtualControls.up = true; });
-        upButton.on('pointerup', () => { this.virtualControls.up = false; });
-        upButton.on('pointerout', () => { this.virtualControls.up = false; });
+        // Cập nhật kiểm tra va chạm với tilemap
+        const tile = this.scene.tilemapLayer ? this.scene.tilemapLayer.getTileAt(newX, newY) : null;
+        // Tile có index >= 0 là có tile, -1 là trống.
+        const isCellSolid = tile && tile.index >= 0;
 
-        // Nút Xuống
-        const downButton = this.scene.add.rectangle(dpadX, dpadY + dpadSize, dpadSize, dpadSize, 0xffffff, dpadAlpha).setInteractive();
-        downButton.setScrollFactor(0);
-        downButton.on('pointerdown', () => { this.virtualControls.down = true; });
-        downButton.on('pointerup', () => { this.virtualControls.down = false; });
-        downButton.on('pointerout', () => { this.virtualControls.down = false; });
+        if ((newX !== x || newY !== y) && !isCellSolid) {
+            this.setGridPosition(newX, newY);
+            this.playAnim(direction);
+            this.moveCooldown = 150; // Giảm cooldown để di chuyển mượt hơn
+        }
     }
 
     update(delta) {
@@ -151,11 +140,10 @@ export default class Player extends Phaser.GameObjects.Sprite {
         if (this.isPlayingOneShot) return;
 
         let dir = 'idle';
-        // Kiểm tra cả phím bấm và nút ảo
-        if (this.cursors.left.isDown || this.virtualControls.left) dir = 'left';
-        else if (this.cursors.right.isDown || this.virtualControls.right) dir = 'right';
-        else if (this.cursors.up.isDown || this.virtualControls.up) dir = 'up';
-        else if (this.cursors.down.isDown || this.virtualControls.down) dir = 'down';
+        if (this.cursors.left.isDown) dir = 'left';
+        else if (this.cursors.right.isDown) dir = 'right';
+        else if (this.cursors.up.isDown) dir = 'up';
+        else if (this.cursors.down.isDown) dir = 'down';
 
         let moved = false;
         if (this.moveCooldown <= 0 && dir !== 'idle') {
@@ -167,12 +155,9 @@ export default class Player extends Phaser.GameObjects.Sprite {
             else if (dir === 'up' && y > 0) newY--;
             else if (dir === 'down' && y < GRID_ROWS - 1) newY++;
 
-            const isCellSolid = () => {
-                const obstacleId = this.scene.grid[newY][newX];
-                if (obstacleId === 0) return false; // Ô trống
-                const obstacleType = this.scene.obstacleTypes.get(obstacleId);
-                return obstacleType ? obstacleType.isSolid : false; // Kiểm tra vật cản có isSolid không
-            };
+            const tile = this.scene.tilemapLayer ? this.scene.tilemapLayer.getTileAt(newX, newY) : null;
+            // Tile có index >= 0 là có tile, -1 là trống.
+            const isCellSolid = () => tile && tile.index >= 0;
 
             if ((newX !== x || newY !== y) && !isCellSolid()) {
                 this.setGridPosition(newX, newY);

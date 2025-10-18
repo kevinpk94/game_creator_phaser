@@ -11,23 +11,28 @@ export default class MainScene extends Phaser.Scene {
         super('MainScene');
         this.grid = [];
         this.gridGraphics = null;
-        this.obstacleGraphics = null;
         this.characters = new Map(); // Use Map to store characters by ID
         this.buttons = new Map(); // Map để lưu các nút bấm tùy chỉnh
-        this.obstacleTypes = new Map(); // Map để lưu các loại chướng ngại vật
-        this.obstacleLayer = null; // Layer để chứa các sprite chướng ngại vật
+        this.tilesets = new Map(); // Map để lưu các tileset
+        this.tilemap = null; // Tilemap object
+        this.tilemapLayer = null; // Tilemap layer
         this.mainPlayer = null;
-        this.editMode = 'obstacle';
+        this.editMode = 'tile';
+        this.selectedButtonSprite = null;
+        this.activeTilesetId = null; // ID của tileset đang được chọn
+        this.activeTileIndex = 0; // Index cục bộ của tile trong tileset đó
+        this.dpad = { up: false, down: false, left: false, right: false };
+        this.heldButtons = new Set(); // Set để lưu các nút đang được giữ
     }
 
     init(data) {
-        this.initialConfigs = data.configs || { characters: [], buttons: [], obstacles: [], grid: [] };
+        this.initialConfigs = data.configs || { characters: [], buttons: [], tilesets: [], grid: [] };
         this.initialGrid = this.initialConfigs.grid || [];
     }
 
     preload() {
         const initialCharacterConfigs = this.initialConfigs.characters || [];
-        const initialObstacleConfigs = this.initialConfigs.obstacles || [];
+        const initialTilesetConfigs = this.initialConfigs.tilesets || [];
 
         // Load character sprites
         for (const charConfig of initialCharacterConfigs) {
@@ -45,29 +50,32 @@ export default class MainScene extends Phaser.Scene {
             }
         }
 
-        // Load obstacle sprites
-        for (const obsConfig of initialObstacleConfigs) {
-            if (obsConfig.spriteUrl && !this.textures.exists(obsConfig.id)) {
-                this.load.image(obsConfig.id, obsConfig.spriteUrl);
+        // Load tileset images
+        for (const tilesetConfig of initialTilesetConfigs) {
+            if (tilesetConfig.imageUrl && !this.textures.exists(tilesetConfig.id)) {
+                this.load.image(tilesetConfig.id, tilesetConfig.imageUrl);
             }
         }
     }
 
     create() {
-        this.grid = this.initialGrid.length > 0 ? this.initialGrid : Array.from({ length: GRID_ROWS }, () => Array(GRID_COLS).fill(0));
+        this.grid = this.initialGrid.length > 0 ? this.initialGrid : Array.from({ length: GRID_ROWS }, () => Array(GRID_COLS).fill(-1));
 
         this.gridGraphics = this.add.graphics();
         this.drawGrid();
 
-        this.obstacleLayer = this.add.container(0, 0);
+        // Tạo tilemap
+        this.tilemap = this.make.tilemap({ data: this.grid, tileWidth: TILE_SIZE, tileHeight: TILE_SIZE });
 
         // Tạo nhân vật và nút bấm từ config ban đầu
-        (this.initialConfigs.obstacles || []).forEach(config => this.addObstacleType(config));
+        (this.initialConfigs.tilesets || []).forEach(config => this.addTileset(config));
         (this.initialConfigs.characters || []).forEach(config => this.addCharacter(config));
         (this.initialConfigs.buttons || []).forEach(config => this.addButton(config));
 
         // Vẽ lại chướng ngại vật ban đầu nếu có
-        this.drawObstacles();
+        this.createDPad();
+
+        this.createTilemapLayer();
 
         this.input.on('pointerdown', this.handlePointerDown, this);
     }
@@ -76,6 +84,30 @@ export default class MainScene extends Phaser.Scene {
         this.characters.forEach(char => {
             char.update(delta);
         });
+
+        // Cập nhật di chuyển của người chơi dựa trên D-pad
+        Object.keys(this.dpad).forEach(dir => {
+            if (this.dpad[dir] && this.mainPlayer) this.mainPlayer.moveInDirection(dir);
+        });
+
+        // Xử lý hành động "onHold" cho các nút đang được giữ
+        this.heldButtons.forEach(buttonId => {
+            const button = this.buttons.get(buttonId);
+            if (button && button.config.actions.onHold.type !== 'none') {
+                this.executeAction(button.config.actions.onHold);
+            }
+        });
+    }
+
+    executeAction(action) {
+        const target = this.characters.get(action.targetId || 'player');
+        if (!target) return;
+
+        if (action.type === 'play_anim' && target.playOneShotAnimation) {
+            target.playOneShotAnimation(action.animName);
+        } else if (action.type === 'move' && target.moveInDirection) {
+            target.moveInDirection(action.direction);
+        }
     }
 
     handlePointerDown(pointer) {
@@ -94,12 +126,22 @@ export default class MainScene extends Phaser.Scene {
             if (npcToPlace) {
                 npcToPlace.setGridPosition(x, y);
             }
-        } else if (this.editMode === 'obstacle' && !isCharCell) {
-            this.grid[y][x] = this.grid[y][x] === 1 ? 0 : 1;
-            // TODO: Thay '1' bằng ID của obstacle được chọn
-            const activeObstacleId = 'default_obstacle'; // Tạm thời
-            this.grid[y][x] = this.grid[y][x] === activeObstacleId ? 0 : activeObstacleId;
-            this.drawObstacles(); // Vẽ lại toàn bộ layer
+        } else if (this.editMode === 'tile' && !isCharCell && this.tilemapLayer && this.activeTilesetId) {
+            const currentTile = this.tilemapLayer.getTileAt(x, y);
+            
+            // Tìm tileset tương ứng trong tilemap của Phaser
+            const phaserTileset = this.tilemap.getTileset(this.activeTilesetId);
+            if (!phaserTileset) {
+                console.warn(`Tileset with id "${this.activeTilesetId}" not found in tilemap.`);
+                return;
+            }
+
+            // Tính toán Global ID (GID) của tile cần đặt
+            // GID = firstgid của tileset + index cục bộ của tile
+            const tileIndexToPlace = phaserTileset.firstgid + this.activeTileIndex;
+
+            // Đặt tile mới, nếu ô đã có tile đó thì xóa đi (đặt lại là -1 hoặc tile trống)
+            this.tilemapLayer.putTileAt(currentTile && currentTile.index === tileIndexToPlace ? -1 : tileIndexToPlace, x, y);
             // Thông báo cho Vue về sự thay đổi của grid
             this.game.events.emit('gridupdated', this.grid);
         }
@@ -115,26 +157,72 @@ export default class MainScene extends Phaser.Scene {
         }
     }
 
-    drawObstacles() {
-        this.obstacleLayer.removeAll(true); // Xóa tất cả sprite cũ
-        for (let y = 0; y < GRID_ROWS; y++) {
-            for (let x = 0; x < GRID_COLS; x++) {
-                const obstacleId = this.grid[y][x];
-                if (obstacleId !== 0 && this.obstacleTypes.has(obstacleId)) {
-                    const obsType = this.obstacleTypes.get(obstacleId);
-                    if (obsType.spriteUrl && this.textures.exists(obsType.id)) {
-                        const sprite = this.add.image(x * TILE_SIZE, y * TILE_SIZE, obsType.id).setOrigin(0, 0);
-                        sprite.setDisplaySize(TILE_SIZE, TILE_SIZE);
-                        this.obstacleLayer.add(sprite);
-                    } else {
-                        // Fallback to red square if no image
-                        const graphics = this.add.graphics();
-                        graphics.fillStyle(0xff3333, 1);
-                        graphics.fillRect(x * TILE_SIZE + 2, y * TILE_SIZE + 2, TILE_SIZE - 4, TILE_SIZE - 4);
-                        this.obstacleLayer.add(graphics);
-                    }
+    createTilemapLayer() {
+        if (this.tilemapLayer) {
+            this.tilemapLayer.destroy();
+        }
+
+        // Lấy tất cả các tileset đã được tải texture
+        const loadedTilesets = [];
+        this.tilesets.forEach(config => {
+            if (config.imageUrl && this.textures.exists(config.id)) {
+                const tileset = this.tilemap.addTilesetImage(config.id, config.id, config.tileWidth, config.tileHeight);
+                if (tileset) {
+                    loadedTilesets.push(tileset);
                 }
             }
+        });
+
+        // Nếu không có tileset nào được tải, không làm gì cả
+        if (loadedTilesets.length === 0) return;
+
+        // Tạo layer với tất cả các tileset đã tải
+        this.tilemapLayer = this.tilemap.createLayer(0, loadedTilesets, 0, 0);
+    }
+
+    createDPad() {
+        const dpadSize = 40;
+        const dpadMargin = 20; // Tăng khoảng cách lề
+        const dpadContainerX = dpadMargin + dpadSize * 1.5; // Dịch sang phải
+        const dpadContainerY = this.scale.height - dpadMargin - dpadSize * 2.5; // Dịch lên trên
+        const dpadAlpha = 0.5;
+
+        const directions = {
+            up: { x: dpadContainerX, y: dpadContainerY },
+            down: { x: dpadContainerX, y: dpadContainerY + dpadSize * 2 },
+            left: { x: dpadContainerX - dpadSize, y: dpadContainerY + dpadSize },
+            right: { x: dpadContainerX + dpadSize, y: dpadContainerY + dpadSize }
+        };
+
+        for (const dir in directions) {
+            const pos = directions[dir];
+            const button = this.add.rectangle(pos.x, pos.y, dpadSize, dpadSize, 0xcccccc, dpadAlpha)
+                .setInteractive()
+                .setScrollFactor(0);
+
+            // Thêm icon mũi tên
+            let arrow;
+            if (dir === 'up') arrow = '▲';
+            else if (dir === 'down') arrow = '▼';
+            else if (dir === 'left') arrow = '◄';
+            else if (dir === 'right') arrow = '►';
+
+            this.add.text(pos.x, pos.y, arrow, { fontSize: '24px', color: '#111' })
+                .setOrigin(0.5)
+                .setScrollFactor(0);
+
+            button.on('pointerdown', () => {
+                if (this.editMode === 'player' || this.editMode === 'npc' || this.editMode === 'tile') return;
+                this.dpad[dir] = true;
+            });
+            button.on('pointerup', () => {
+                this.dpad[dir] = false;
+            });
+            button.on('pointerout', () => {
+                if (this.dpad[dir]) {
+                    this.dpad[dir] = false;
+                }
+            });
         }
     }
 
@@ -157,26 +245,44 @@ export default class MainScene extends Phaser.Scene {
     addButton(buttonConfig) {
         if (this.buttons.has(buttonConfig.id)) return;
 
-        const { id, x, y, texture, action } = buttonConfig;
+        const { id, x, y, texture, actions } = buttonConfig;
         const buttonSize = 50;
         const buttonAlpha = 0.7;
 
         let button;
         if (texture && this.textures.exists(texture)) {
-            button = this.add.image(x, y, texture).setInteractive();
+            button = this.add.image(x, y, texture).setInteractive({ useHandCursor: true });
         } else {
-            button = this.add.circle(x, y, buttonSize / 2, 0xcccccc, buttonAlpha).setInteractive();
+            button = this.add.circle(x, y, buttonSize / 2, 0xcccccc, buttonAlpha).setInteractive({ useHandCursor: true });
         }
 
+        button.config = buttonConfig; // Lưu config vào sprite để dễ truy cập
         this.input.setDraggable(button);
         button.setScrollFactor(0);
 
         button.on('pointerdown', () => {
-            const target = this.characters.get(action.targetId);
-            if (target && target.playOneShotAnimation) {
-                target.playOneShotAnimation(action.animName);
+            if (this.editMode === 'button') {
+                this.game.events.emit('buttonSelected', id);
+            } else if (actions.onDown.type !== 'none') {
+                this.executeAction(actions.onDown);
+                this.heldButtons.add(id); // Thêm vào danh sách nút đang giữ
+            } else {
+                // Thực hiện hành động của nút khi không ở chế độ edit
+                const target = this.characters.get(action.targetId);
+                if (target && target.playOneShotAnimation) {
+                    target.playOneShotAnimation(action.animName);
+                }
             }
         });
+
+        button.on('pointerup', () => {
+            this.heldButtons.delete(id); // Xóa khỏi danh sách nút đang giữ
+            if (this.editMode !== 'button' && actions.onUp.type !== 'none') {
+                this.executeAction(actions.onUp);
+            }
+        });
+        // Nếu con trỏ rời khỏi nút, cũng coi như là 'pointerup'
+        button.on('pointerout', () => this.heldButtons.delete(id));
 
         button.on('dragstart', () => {
             if (this.game.events) {
@@ -197,35 +303,50 @@ export default class MainScene extends Phaser.Scene {
         this.buttons.set(id, button);
     }
 
-    addObstacleType(obstacleConfig) {
-        this.obstacleTypes.set(obstacleConfig.id, obstacleConfig);
-        if (obstacleConfig.spriteUrl && !this.textures.exists(obstacleConfig.id)) {
-            this.load.image(obstacleConfig.id, obstacleConfig.spriteUrl);
-            this.load.once('complete', () => this.drawObstacles());
-            this.load.start();
+    selectButton(buttonId) {
+        // Bỏ highlight nút cũ
+        if (this.selectedButtonSprite) {
+            this.selectedButtonSprite.setStrokeStyle(); // Xóa stroke
+        }
+
+        const button = this.buttons.get(buttonId);
+        if (button) {
+            // Highlight nút mới
+            button.setStrokeStyle(4, 0xef4444, 1); // Thêm viền màu đỏ
+            this.selectedButtonSprite = button;
         }
     }
 
-    updateObstacleType(obstacleConfig) {
+    addTileset(tilesetConfig) {
+        this.tilesets.set(tilesetConfig.id, tilesetConfig);
+        if (tilesetConfig.imageUrl && !this.textures.exists(tilesetConfig.id)) {
+            this.load.image(tilesetConfig.id, tilesetConfig.imageUrl);
+            this.load.once('complete', () => this.createTilemapLayer());
+            this.load.start();
+        } else {
+            this.createTilemapLayer();
+        }
+    }
+
+    updateTileset(tilesetConfig) {
         // Cập nhật thông tin trong map
-        this.obstacleTypes.set(obstacleConfig.id, obstacleConfig);
+        this.tilesets.set(tilesetConfig.id, tilesetConfig);
 
         // Nếu có sprite mới và chưa được tải, thì tải nó
-        if (obstacleConfig.spriteUrl && !this.textures.exists(obstacleConfig.id)) {
-            this.load.image(obstacleConfig.id, obstacleConfig.spriteUrl);
-            this.load.once('complete', () => this.drawObstacles());
+        if (tilesetConfig.imageUrl && !this.textures.exists(tilesetConfig.id)) {
+            this.load.image(tilesetConfig.id, tilesetConfig.imageUrl);
+            this.load.once('complete', () => this.createTilemapLayer());
             this.load.start();
         } else {
             // Nếu không có sprite mới hoặc sprite đã tồn tại, chỉ cần vẽ lại
-            this.drawObstacles();
+            this.createTilemapLayer();
         }
     }
 
-    removeObstacleType(obstacleId) {
-        this.obstacleTypes.delete(obstacleId);
-        // Xóa các obstacle tegoại này khỏi grid
-        // ... (logic này có thể thêm sau)
-        this.drawObstacles();
+    removeTileset(tilesetId) {
+        this.tilesets.delete(tilesetId);
+        // TODO: Xóa các tile của tileset này khỏi grid
+        this.createTilemapLayer();
     }
 
     getGrid() {
@@ -257,5 +378,15 @@ export default class MainScene extends Phaser.Scene {
 
     setEditMode(mode) {
         this.editMode = mode;
+        // Khi chuyển khỏi chế độ 'button', bỏ chọn nút
+        if (mode !== 'button' && this.selectedButtonSprite) {
+            this.selectedButtonSprite.setStrokeStyle();
+            this.selectedButtonSprite = null;
+        }
+    }
+
+    setActiveTile(tilesetId, tileIndex) {
+        this.activeTilesetId = tilesetId;
+        this.activeTileIndex = tileIndex;
     }
 }

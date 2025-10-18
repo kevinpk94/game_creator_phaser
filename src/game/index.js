@@ -97,23 +97,37 @@ export function createPhaserGame(parentId = 'game-container', initialConfigs = {
         game.addButton(buttonConfig);
     };
 
+    game.selectButton = (buttonId) => {
+        const scene = game.scene.getScene('MainScene');
+        if (scene && scene.scene.isActive()) {
+            scene.selectButton(buttonId);
+        }
+    };
+
     // --- Obstacle Live Update ---
-    game.addObstacleType = (obstacleConfig) => {
+    game.addTileset = (tilesetConfig) => {
         const scene = game.scene.getScene('MainScene');
         if (scene && scene.scene.isActive()) {
-            scene.addObstacleType(obstacleConfig);
+            scene.addTileset(tilesetConfig);
         }
     };
-    game.removeObstacleType = (obstacleId) => {
+    game.removeTileset = (tilesetId) => {
         const scene = game.scene.getScene('MainScene');
         if (scene && scene.scene.isActive()) {
-            scene.removeObstacleType(obstacleId);
+            scene.removeTileset(tilesetId);
         }
     };
-    game.updateObstacleType = (obstacleConfig) => {
+    game.updateTileset = (tilesetConfig) => {
         const scene = game.scene.getScene('MainScene');
         if (scene && scene.scene.isActive()) {
-            scene.updateObstacleType(obstacleConfig);
+            scene.updateTileset(tilesetConfig);
+        }
+    };
+
+    game.setActiveTile = (tilesetId, tileIndex) => {
+        const scene = game.scene.getScene('MainScene');
+        if (scene && scene.scene.isActive()) {
+            scene.setActiveTile(tilesetId, tileIndex);
         }
     };
 
